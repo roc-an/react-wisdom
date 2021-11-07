@@ -9,7 +9,7 @@ const element = <h1 id="title">Hello {name}</h1>;
 
 当然，这不是真的 HTML，这只是一种语法糖。这种写法有点像模板语法，但又天生有着 JS 的所有能力，这让 UI 视图与逻辑紧密结合，非常灵活。
 
-本文会揭开 JSX 的神秘面纱，看看它魔力的源泉究竟是什么。
+本文会揭开 JSX 的神秘面纱，看看它魔力的源泉究竟是什么。涉及的所有源码我都在 [react-wisdom-codebase](https://github.com/roc-an/react-wisdom-codebase) 进行了详细的注释。
 
 ## Babel 将 JSX 编译成 JS
 
@@ -188,3 +188,87 @@ export function createElement(type, config, children) {
 4. 最终将所有处理后的数据，传入 `ReactElement()` 函数并作为 `React.createElement()` 的 `return`。
 
 一句话，**`React.createElement()` 的职责，是在真正创建 ReactElement 前做一层对传入数据的处理**。
+
+## `ReactElement` 是什么
+
+接着找到 `ReactElement()` 函数的定义：
+
+```js
+/**
+ * Factory method to create a new React element. This no longer adheres to
+ * the class pattern, so do not use new to call it. Also, instanceof check
+ * will not work. Instead test $$typeof field against Symbol.for('react.element') to check
+ * if something is a React Element.
+ * 
+ * 创建新 ReactElement 的工厂函数。命名虽然是大驼峰，但它并不是一个 class，所以不要用 new 调用，实例检测也不会奏效。
+ * 取而代之的是，可以通过判断 $$typeof 是否是 Symbol.for('react.element') 来检查是否是 ReactElement。
+ *
+ * @param {*} type
+ * @param {*} props
+ * @param {*} key
+ * @param {string|object} ref
+ * @param {*} owner
+ * @param {*} self A *temporary* helper to detect places where `this` is
+ * different from the `owner` when React.createElement is called, so that we
+ * can warn. We want to get rid of owner and replace string `ref`s with arrow
+ * functions, and as long as `this` and owner are the same, there will be no
+ * change in behavior.
+ * @param {*} source An annotation object (added by a transpiler or otherwise)
+ * indicating filename, line number, and/or other information.
+ * @internal
+ */
+const ReactElement = function(type, key, ref, self, source, owner, props) {
+  const element = {
+    // This tag allows us to uniquely identify this as a React Element
+    // 该属性允许我们唯一标识是否是 ReactElement
+    $$typeof: REACT_ELEMENT_TYPE,
+
+    // Built-in properties that belong on the element
+    // 内置属性
+    type: type, // 是用来记录标签名字符串、class component、function component、fragment 这些类型的
+    key: key,
+    ref: ref,
+    props: props,
+
+    // Record the component responsible for creating this element.
+    // 记录负责创建该元素的组件
+    _owner: owner,
+  };
+  return element;
+};
+```
+
+`self` 和 `source` 仅在开发环境下使用，是用来做警告提示的，可以忽略。
+
+`$$typeof` 很关键，它是用来唯一识别 ReactElement 类型的，这些类型都定义在 [shared/ReactSymbols.js](https://github.com/roc-an/react-wisdom-codebase/blob/main/packages/shared/ReactSymbols.js)，我把它们贴出来：
+
+```js
+if (typeof Symbol === 'function' && Symbol.for) {
+  const symbolFor = Symbol.for;
+  REACT_ELEMENT_TYPE = symbolFor('react.element');
+  REACT_PORTAL_TYPE = symbolFor('react.portal');
+  REACT_FRAGMENT_TYPE = symbolFor('react.fragment');
+  REACT_STRICT_MODE_TYPE = symbolFor('react.strict_mode');
+  REACT_PROFILER_TYPE = symbolFor('react.profiler');
+  REACT_PROVIDER_TYPE = symbolFor('react.provider');
+  REACT_CONTEXT_TYPE = symbolFor('react.context');
+  REACT_FORWARD_REF_TYPE = symbolFor('react.forward_ref');
+  REACT_SUSPENSE_TYPE = symbolFor('react.suspense');
+  REACT_SUSPENSE_LIST_TYPE = symbolFor('react.suspense_list');
+  REACT_MEMO_TYPE = symbolFor('react.memo');
+  REACT_LAZY_TYPE = symbolFor('react.lazy');
+  REACT_SCOPE_TYPE = symbolFor('react.scope');
+  REACT_DEBUG_TRACING_MODE_TYPE = symbolFor('react.debug_trace_mode');
+  REACT_OFFSCREEN_TYPE = symbolFor('react.offscreen');
+  REACT_LEGACY_HIDDEN_TYPE = symbolFor('react.legacy_hidden');
+  REACT_CACHE_TYPE = symbolFor('react.cache');
+}
+```
+
+这些类型通过 [`Symbol.for()`](https://developer.mozilla.org/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/Symbol/for) 注册到了全局，这是**原始数据类型 `Symbol` 在框架中的使用场景，用来唯一标识类型**。
+
+另外，`shared` 是个共享模块，定义了被其他模块所共享的函数和常量。
+
+## TODO
+
+* `ReactElement()` 函数只返回了个对象，那后续是怎么渲染成 DOM 的呢？
