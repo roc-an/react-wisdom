@@ -87,3 +87,104 @@ var ul = React.createElement("ul", null,
 标签结构与函数调用结构一致。
 
 由此可见，`React.createElement()` 这个顶层 API 才是从 JSX 代码到一步步最终渲染成实际 DOM 的关键所在！ 
+
+## 一探 `React.createElement()`
+
+沿着 [`/packages/react/index.js`](https://github.com/roc-an/react-wisdom-codebase/blob/main/packages/react/index.js) 这个作为 react 包的入口寻找，不难找到 `React.createElement()` 是在 [`ReactElement.js`](https://github.com/roc-an/react-wisdom-codebase/blob/main/packages/react/src/ReactElement.js#L359) 中定义的。
+
+我把 `React.createElement()` 源码贴出来，去掉了 `__DEV__` 部分的代码，这些大多是开发环境的警告处理，不影响核心逻辑，另外我加了详细的注释：
+
+```js
+/**
+ * Create and return a new ReactElement of the given type.
+ * See https://reactjs.org/docs/react-api.html#createelement
+ * 根据给定的 type 创建并 return 一个新的 ReactElement
+ * @param type: ReactElement 类型，可以是标签名字符串（如 'div'、'span'），React component 类型（一个 class 或 function），
+ *   或是 React fragment 类型
+ * @param config: 创建 ReactElement 的配置项，主要是 ReactElement 的属性，以键值对形式存在这个对象里
+ * @param children: 要创建的 ReactElement 的子节点，可以是 1 或多个，会通过 arguments 取到
+ */
+export function createElement(type, config, children) {
+  let propName;
+
+  // Reserved names are extracted
+  const props = {};
+
+  let key = null;
+  let ref = null;
+  let self = null;
+  let source = null;
+
+  // 判断 config 中否有有效的 ref 和 key，并赋值给变量
+  if (config != null) {
+    if (hasValidRef(config)) {
+      ref = config.ref;
+    }
+    if (hasValidKey(config)) {
+      key = '' + config.key;
+    }
+
+    self = config.__self === undefined ? null : config.__self;
+    source = config.__source === undefined ? null : config.__source;
+    // Remaining properties are added to a new props object
+    // 除了内置属性（也就是 RESERVED_PROPS 中的 key, ref, __self, __source，这些是框架处理 ReactElement 而内置的，
+    // 并不是我们写应用时在 React 组件上定义的 props），剩余的都添加到 props 这个对象
+    for (propName in config) {
+      if (
+        hasOwnProperty.call(config, propName) &&
+        !RESERVED_PROPS.hasOwnProperty(propName)
+      ) {
+        props[propName] = config[propName];
+      }
+    }
+  }
+
+  // Children can be more than one argument, and those are transferred onto
+  // the newly allocated props object.
+  // Children 可以是 1 或多个，createElement 函数的第 3 个及以后的参数都作为子节点
+  // 通过 arguments 判断、处理后，props.children 是一个节点或节点数组
+  const childrenLength = arguments.length - 2;
+  if (childrenLength === 1) {
+    props.children = children;
+  } else if (childrenLength > 1) {
+    const childArray = Array(childrenLength);
+    for (let i = 0; i < childrenLength; i++) {
+      childArray[i] = arguments[i + 2];
+    }
+    props.children = childArray;
+  }
+
+  // Resolve default props
+  // 处理默认的 props
+  // 比如 class Comp extends React.Component
+  // Comp.defaultProps = {} 这种情况
+  if (type && type.defaultProps) {
+    const defaultProps = type.defaultProps;
+    for (propName in defaultProps) {
+      // 遍历 defaultProps 上的 key，如果上面处理过的 props 上这个 key 没定义值，那值就用 defaultProps 上的
+      // 注意判断条件是 undefined，换句话说，如果 props 上 key 的值是 null，并不会采用默认值
+      if (props[propName] === undefined) {
+        props[propName] = defaultProps[propName];
+      }
+    }
+  }
+  return ReactElement(
+    type,
+    key,
+    ref,
+    self,
+    source,
+    ReactCurrentOwner.current,
+    props,
+  );
+}
+```
+
+归纳来看，`React.createElement()` 函数做了这几件事：
+
+1. 验证处理传入的 `config` 各属性，验证内置属性 `key`, `ref`, `__self`, `__source` 的有效性，其余非内置属性将作为 ReactElement 的 `props`；
+2. 通过 `arguments` 处理传入的子节点；
+3. 处理默认 `props`；
+4. 最终将所有处理后的数据，传入 `ReactElement()` 函数并作为 `React.createElement()` 的 `return`。
+
+一句话，**`React.createElement()` 的职责，是在真正创建 ReactElement 前做一层对传入数据的处理**。
