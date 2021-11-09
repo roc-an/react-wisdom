@@ -4,7 +4,7 @@
 
 React 18 是首个加入并发功能（可选）的正式版本，主要功能有：
 
-* [startTransition](https://github.com/reactwg/react-18/discussions/41)：支持在昂贵的 state 转变中仍然保持 UI 响应
+* [`startTransition`](https://github.com/reactwg/react-18/discussions/41)：支持在昂贵的 state 转变中仍然保持 UI 响应
 
 ## 参考资源
 

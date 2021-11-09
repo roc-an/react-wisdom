@@ -39,3 +39,24 @@ setSearchQuery(input);
 用户期望紧急的更新立刻执行，因为原生浏览器处理这些交互就很快。但非紧急的更新可以有一些延迟，由于有很多事要处理，用户并不奢望它们能立刻完成。（事实上，Developer 们也经常会用类似防抖这样的技术手段来人为延迟）
 
 React18 前，所有更新都是紧急渲染的。意味着上面两种更新都是在一次更新中同时进行的，这会一直阻塞用户看到交互反馈，直到一切都渲染完毕。我们欠缺的是一种机制，可以告知 React 哪些更新紧急，哪些又不紧急。
+
+## startTransition 是如何帮助的？
+
+新的 `startTransition` API 通过赋予你将更新标记为 “transitions” 的能力来解决这个问题：
+
+```js
+import { startTransition } from 'react';
+
+// 紧急：显示我们输入了什么
+setInputValue(input);
+
+// 将其中的 state 更新标记为 transitions
+startTransition(() => {
+  // Transition: 显示搜索结果
+  setSearchQuery(input);
+});
+```
+
+被 `startTransition` 包裹的更新会视为非紧急（non-urgent）更新，如果有更紧急的更新进来，比如点击、敲键盘，非紧急更新将会被打断。如果 transition 过程被用户行为打断了（比如在一行中连续输入多个字符），React 会扔掉未完成的 state 渲染任务，并仅渲染最后过来的更新。
+
+即使一些交互会导致大量的 UI 变化，Transitions 也会让这些交互潇洒地进行，同时也避免了在无关的渲染上浪费时间。
