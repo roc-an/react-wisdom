@@ -1,5 +1,7 @@
 # React 18 新特性：startTransition
 
+> 发布于 2021.11.09，最后更新于 2021.11.09。
+>
 > 原 Discussion：https://github.com/reactwg/react-18/discussions/41
 
 ## 概述
@@ -95,3 +97,32 @@ setTimeout(() => {
 另一个很重要的区别是，在 `setTimeout` 中包裹的大屏更新仍旧会让页面卡死，这只是在延时后发生罢了。延时完毕，如果用户依然持续地输入或是进行其他一些交互，他们还是会因页面响应而被卡到。然而，通过 `startTransition` 标记的 state 更新是可中断的，所以它们不会让页面卡死。这让浏览器在处理不同组件的渲染过程中有一个更小的间隙来处理事件。输入一旦改变，React 将不会执着于保持那些用户不再感兴趣的渲染。
 
 总之，由于 `setTimeout` 只是简单地延迟去更新，为了显示一个 Loading 提示还要写些脆弱的异步代码。而结合 Transitions，React 会为你跟踪那些改变中的 state，然后基于过渡过程中当前的 state 完成更新，当然也提供等待时显示 Loading 的能力。
+
+## 过渡过程中我们要做些什么？
+
+通知用户有一些工作正在后台进行是一种最佳实践。为此，我们提供了用 `isPending` 标识过渡的 Hook：
+
+```js
+import { useTransition } from 'react';
+
+const [isPending, startTransition] = useTransition();
+```
+
+当过渡正在进行时，`isPending` 的值为 `true`，这时我们可以为等待的用户显示一个 Spinner：
+
+```js
+{isPending && <Spinner />}
+```
+
+在 Transition 中包裹的 state 更新不一定非要产生于同一个组件。比如，在搜索框组件中的 Spinner 也可以用来反映搜索结果的重新渲染。
+
+## 何不去写运行更快的代码？
+
+写运行更快的代码，并避免不必要的重新渲染，这一直是很好的优化性能方式。Transitions 与这种方式是互补的。这使得即便在大规模的视图改变下仍能保持 UI 可响应。使用以往的现有策略很难去进一步优化。即便没有非必要的重新渲染，相比于将所有更新都视为紧急更新，Transition 方式仍会提供一个更好的用户体验。
+
+## 在哪里用它呢？
+
+可以使用 `startTransition` 来包裹任何想转移到后台运行的更新。这类更新可以分为两种典型的情况：
+
+* 渲染慢：由于 React 要执行大量工作来完成让 UI 显示最终结果的过渡，导致这些更新需要一定时间。[这有个在大量重新渲染场景下，使用 `startTransition` 让应用保持可响应的真实示例](https://github.com/reactwg/react-18/discussions/65)；
+* 网速慢：由于 React 要等待来自网络请求的数据，导致这些这些更新需要一定时间。这类场景与 Suspense 密切相关。
