@@ -17,3 +17,24 @@ React18 将加入 `startTransition`、`useDeferredValue`、并发 `Suspense` 语
 然而，在收到了社区中对这个改变的影响反馈后，我们考虑应逐步地去完成版本升级。显然，这个策略的落地需要有一个逐渐的过程，React17 就是这个过程的第一步。
 
 在 React17 中，可以让一个应用使用不同 React 版本，用户可以增量地将整个根组件转为 React18，并在 React17 版本保留旧的根组件，像以往版本那样渲染相同的结果。但这种策略有一个缺陷，就是根组件可能很庞大，蔓延着成百上千个文件。因此在根组件中，用户需要一个能逐渐适应并迁移到 React18 的方案。
+
+## 逐步升级尝试的第一步：Blocking Mode
+
+逐渐去[适应并发模式](https://reactjs.org/docs/concurrent-mode-adoption.html)的策略中，包含了 3 种模式：
+
+* **Legacy 模式**：就是 React17 中使用的现有模式
+  * 默认禁止 `StrictMode`；
+  * 默认同步渲染；
+  * 旧的 Suspense 语法；
+* **Blocking 模式**：在 Legacy 和 Concurrent 之间的混合模式
+  * 默认启用 `StrictMode`；
+  * 默认同步渲染；
+  * 一些新特性支持；
+* **Concurrent 模式**：在 React18 中使用的新模式
+  * 默认启用 `StrictMode`；
+  * 默认并发渲染；
+  * 所有新特性支持；
+
+这种策略下，用户可以先将现有 Legacy 模式根组件，转成 Blocking 模式，最后再转成 Concurrent 模式。
+
+Blocking 模式会启用所有的 `StrictMode` 警告和开发环境行为，而对于更新渲染、Suspense 语法则没有任何改变。用户可以发现整个根组件的问题，确保代码能继续在生产环境运行的同时去修复它们。最终等所有问题都修复后，自然而然可以无缝地切换到 Concurrent 模式。
