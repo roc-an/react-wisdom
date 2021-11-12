@@ -21,3 +21,9 @@ React 中，可以通过 `props.children` 来获取当前组件的子节点。�
 * 如何用 36 进制数优化 `key` 的字符数（这是**多进制数**在编程中的一个常见场景）；
 
 在 [这次 Commit]() 中，我对 `React.Children` API 的源码做了详细的逐行注释，供大家参考 :)
+
+## （一）用 `React.Children.map()` 将子节点树“铺平”
+
+几个 API 中最核心的就是 `React.Children.map()` 了，后文我们会发现，其实其他 API 的源码实现中，就是调用了它。所以搞懂了它，其他的也就小 Case 了。
+
+我写了一个 [使用 `React.Children.map()` 的简单示例](https://codesandbox.io/s/react-children-map-usage-mgno5)，你也可以在 [这里]() 看到示例代码。
