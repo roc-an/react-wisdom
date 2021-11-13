@@ -138,3 +138,41 @@ function mapChildren(
 `mapChildren` 中只是对传入的 `children` 做简单的判 `null` 处理，并且初始化了用于承载 `map` 结果的数组 `result`，以及用来统计已遍历的子节点（包括子节点的子节点们，也就是子节点树）数 `count`，最后 `return` 结果数组。
 
 它里面最核心的，猜也能猜到，就是调用了 `mapIntoArray()` 函数，`mapChildren()` 将应用层传入的 `children`、`func` 以及自己构建的 `result` 和 `count` 都透传进了 `mapIntoArray()`。
+
+## `mapIntoArray()` 剖析
+
+将源码定位到 `mapIntoArray()`，刚看到时我有点蒙，因为这家伙折叠起来一看，有 200+ 行。
+
+**对于这种大函数，看源码我有个技巧**：
+
+1. 先把函数体折叠起来，分析传参和 `return` 值，并猜一猜它的核心职责，以及要做什么处理；
+2. 打开函数体，把 `if (__DEV__) {...}` 都折叠起来，这些大多是开发环境警告，与核心逻辑无关，可忽略；
+3. 不要逐行去看，先一整段一整段地看，尤其关注像 `if`、`switch` 这种分支条件；
+4. 分析完一整段代码后，给这段代码归纳出它的核心职责；
+5. 必要时，可以在纸上画辅助图分析。
+
+接下来，我就用以上这 5 步带大伙剖析 `mapIntoArray()` 函数。
+
+### `mapIntoArray()` 的传参和 `return` 分析
+
+我把传参和 `return` 贴出来：
+
+```js
+function mapIntoArray(
+  children: ?ReactNodeList, // 要遍历的子节点树
+  array: Array<React$Node>, // 遍历的结果数组
+  escapedPrefix: string,
+  nameSoFar: string,
+  callback: (?React$Node) => ?ReactNodeList, // 给当前遍历节点调用的函数
+): number { // 返回值是 map 得到的数组的元素数
+  ...
+}
+```
+
+结合着 [`Flow`](https://flow.org/) 静态类型检测工具，可以清晰看到传参和返回值的类型，这也是静态类型检测的优势，“**代码即文档**”。
+
+不难猜到各参数的含义，我把它们注释出来了。`escapedPrefix`、`nameSoFar` 可能会猜不出，不过也没关系，猜不出的就先保留疑问。从命名 `prefix` 前缀、`name` 多少可以联想到这俩参数可能和字符串处理相关。它们是用于递归中命名 `key` 的，后文我们分析如何设置 `key` 时再关注它们。
+
+需要重点注意的是**返回值是个数字**，它是本次调用 `mapIntoArray()` 过程中已遍历的子节点的计数，每次调用时将其累加，最终就能得到遍历的整个子节点树的节点数了。
+
+让我们带着这些猜想进入到 `mapIntoArray()` 函数体中，我把 `if (__DEV__) {...}` 部分去掉了，我们一段一段地分析函数体。
