@@ -342,3 +342,60 @@ export function isValidElement(object) {
 ```
 
 可以发现，**React 主要是通过对象上的 `$$typeof` 属性来判断节点类型的**。如果 `$$typeof` 属性是 `REACT_ELEMENT_TYPE` 这个 `Symbol`，那么该对象就是一个 `ReactElement`。
+
+#### `cloneAndReplaceKey` 克隆节点并附上新 `key`
+
+如果验证的是一个 `ReactElement`，那么通过 `cloneAndReplaceKey()` 克隆它并设置上新的 `key`，最后 `push` 进结果数组 `array` 中：
+
+```js
+if (isValidElement(mappedChild)) {
+  mappedChild = cloneAndReplaceKey(
+    mappedChild,
+    escapedPrefix +
+      (mappedChild.key && (!child || child.key !== mappedChild.key)
+        ? escapeUserProvidedKey('' + mappedChild.key) + '/'
+        : '') +
+      childKey,
+  );
+}
+array.push(mappedChild);
+```
+
+`cloneAndReplaceKey()` 函数也很简单：
+
+```js
+// 在 /react/src/ReactElement.js 中
+const ReactElement = function(type, key, ref, self, source, owner, props) {
+  const element = {
+    $$typeof: REACT_ELEMENT_TYPE,
+    type: type,
+    key: key,
+    ref: ref,
+    props: props,
+    _owner: owner,
+  };
+  return element;
+};
+// ...
+// clone 一个 ReactElement 并附上新的 key
+export function cloneAndReplaceKey(oldElement, newKey) {
+  const newElement = ReactElement(
+    oldElement.type,
+    newKey,
+    oldElement.ref,
+    oldElement._self,
+    oldElement._source,
+    oldElement._owner,
+    oldElement.props,
+  );
+  return newElement;
+}
+```
+
+可以发现，它只是把原有 `ReactElement` 对象的属性加到新对象中，`return` 新对象，另外使用了新的 `newKey`。
+
+这就是 `if (invokeCallback) {...}` 这个条件分支做的主要的事情了，判断 `mappedChild` 是否是数组这两种情况并分别做处理。
+
+最后别忘了，该条件分支结尾 `return 1`。为什么要 `return 1`？因为前面我们说 `mapIntoArray()` 是要返回已遍历的节点数的，这里 `invokeCallback` 为 `true` 仅遍历了一个节点，所以 `return 1`。
+
+至此，`map` 单节点的逻辑就完整了 :)
