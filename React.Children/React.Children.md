@@ -1,8 +1,10 @@
 # React.Children API 源码剖析
 
+![封面](https://user-images.githubusercontent.com/79783808/141612127-cd311b4e-2082-48c3-b1e3-43ee273f8e41.jpg)
+
 > 发布于 2021.11.13，最后更新于 2021.11.13。
 >
-> 源码版本：V17.0.3
+> 源码版本：V17.0.3，封面来自 Pexels 上的 Quang Nguyen Vinh 拍摄的图片
 
 React 中，可以通过 `props.children` 来获取当前组件的子节点。偶尔会遇到要**自定义处理子节点**的情况，这就要用到 [`React.Children`](https://reactjs.org/docs/react-api.html#reactchildren) 相关 API 了。
 
@@ -21,7 +23,7 @@ React 中，可以通过 `props.children` 来获取当前组件的子节点。�
 * 如何用 36 进制数优化 `key` 的字符数（这是**多进制数**在编程中的一个常见场景）；
 * `Iterator` 可迭代对象的使用。
 
-在 [这次 Commit]() 中，我对 `React.Children` API 的源码做了详细的逐行注释，供大家参考 :)
+在 [这次 Commit](https://github.com/roc-an/react-wisdom-codebase/commit/d6471fb486c7f5c45a21c98a132f5e85137e2a9e) 中，我对 `React.Children` API 的源码做了详细的逐行注释，供大家参考 :)
 
 ## （一）用 `React.Children.map()` 将子节点树“铺平”
 
@@ -576,6 +578,8 @@ export function getIteratorFn(maybeIterable: ?any): ?() => ?Iterator<*> {
 ## （四）`React.Children.map()` 源码思路总结
 
 我画了张图来描述 `React.Children.map()` 的执行流程。如图：
+
+![React Children map()](https://user-images.githubusercontent.com/79783808/141611896-2da3f7c4-ef91-41ad-a25b-6f0f985cb1ee.jpg)
 
 其中进行了两次关键的判断：
 
