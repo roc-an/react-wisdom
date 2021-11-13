@@ -841,10 +841,138 @@ if (isValidElement(mappedChild)) {
   * `".1/.1.0"`
   * `".1/.1.1"`
 
-我本以为大功告成了，但是发现上面浏览器打印的 `key` 中有冒号 `:`。当时我的内心是崩溃的。
+我本以为大功告成了，但是发现上面浏览器打印的 `key` 中有冒号 `:`。当时我的内心是崩溃的。在 `ReactChildren.js` 中又找了几圈，还是没发现递归流程中 `key` 会有 `:` 的情况。
 
 不过也没关系，我们的层级是正确的，而且，目前仅处于渲染的 `react` 模块这个阶段，还没有到后面实际渲染的 `react-dom` 阶段，从 `ReactChildren.js` 提供的其他编码 `key` 的函数来看，很可能后续阶段还会继续处理 `key`。
 
 至此，所有递归情况下设置 `key` 的逻辑就分析完了。
 
 可能有点蒙，不过很正常，关键是吸收它的**思想：提前设置好分隔符，然后在每层递归中，传递了之前分析好的 `key`，这样就能在后续递归中进行拼接。另外 React 还注意了手动为节点设置 `key` 的情况，并且使用了 36 进制数进行短字符优化，这些才是我们分析了一通的精髓**。
+
+## （六）其他 `React.Children` API 实现
+
+搞定了 `React.Children.map()`，其他方法简直索然无味~
+
+接下来就是收获的季节了。
+
+### `React.Children.forEach()`
+
+上菜：
+
+```js
+/**
+ * Iterates through children that are typically specified as `props.children`.
+ * 遍历那些被指定为 `props.children` 的子节点
+ *
+ * See https://reactjs.org/docs/react-api.html#reactchildrenforeach
+ *
+ * The provided forEachFunc(child, index) will be called for each
+ * leaf child.
+ * 会为每个叶子节点调用传入的 forEachFunc(child, index)
+ *
+ * @param {?*} children Children tree container. // 子节点树
+ * @param {function(*, int)} forEachFunc // forEach 遍历函数
+ * @param {*} forEachContext Context for forEachContext. // forEach 遍历函数的上下文
+ */
+function forEachChildren(
+  children: ?ReactNodeList,
+  forEachFunc: ForEachFunc,
+  forEachContext: mixed,
+): void {
+  // React.Children.forEach() 其实内部就是调用了 React.Children.map()，只是不需要返回值罢了
+  mapChildren(
+    children,
+    function() {
+      forEachFunc.apply(this, arguments);
+      // Don't return anything.
+      // 不需要任何 return 内容
+    },
+    forEachContext,
+  );
+}
+```
+
+正如我注释里写的那样：`React.Children.forEach()` 其实内部就是调用了 `React.Children.map()`，只是不需要返回值罢了。
+
+### `React.Children.count`
+
+又一道菜：
+
+```js
+/**
+ * Count the number of children that are typically specified as
+ * `props.children`.
+ * 统计指定为 `props.children` 的子节点（及其子树）共有多少个节点
+ *
+ * See https://reactjs.org/docs/react-api.html#reactchildrencount
+ *
+ * @param {?*} children Children tree container.
+ * @return {number} The number of children.
+ */
+function countChildren(children: ?ReactNodeList): number {
+  let n = 0;
+  mapChildren(children, () => {
+    n++;
+    // Don't return anything
+    // 因为每次递归都会将该函数透传，所以该函数调用了多少次，就意味着已遍历多少个子节点
+  });
+  return n;
+}
+```
+
+这个更简单，用 `n` 计数 `map` 函数在递归中被调用了多少次就搞定了！
+
+### `React.Children.only()`
+
+倒数第二道菜：
+
+```js
+/**
+ * Returns the first child in a collection of children and verifies that there
+ * is only one child in the collection.
+ *
+ * See https://reactjs.org/docs/react-api.html#reactchildrenonly
+ *
+ * The current implementation of this function assumes that a single child gets
+ * passed without a wrapper, but the purpose of this helper function is to
+ * abstract away the particular structure of children.
+ * 目前这个函数的实现假定了传入了一个没有任何包裹的单一子节点，但这个辅助函数的目的是抽象出子节点的特殊结构
+ *
+ * @param {?object} children Child collection structure.
+ * @return {ReactElement} The first and only `ReactElement` contained in the
+ * structure.
+ */
+function onlyChild<T>(children: T): T {
+  // 验证传参是不是一个 ReactElement，如果是就直接 return，不是的话报错
+  if (!isValidElement(children)) {
+    throw new Error(
+      'React.Children.only expected to receive a single React element child.',
+    );
+  }
+
+  return children;
+}
+```
+
+这就更绝了，判断不是 `ReactElement` 就抛错，是的话直接 `return`。
+
+### `React.Children.toArray()`
+
+最后一道菜：
+
+```js
+/**
+ * Flatten a children object (typically specified as `props.children`) and
+ * return an array with appropriately re-keyed children.
+ * 将子节点对象（如 `props.children`）展开为一维数组，return 重新设置了合适的 key 的子节点数组
+ * 
+ * See https://reactjs.org/docs/react-api.html#reactchildrentoarray
+ */
+function toArray(children: ?ReactNodeList): Array<React$Node> {
+  // React.Children.toArray() 其实就是调用了 React.Children.map()
+  // 只不过将 map 函数设为将传入的子节点直接 return
+  return mapChildren(children, child => child) || [];
+}
+```
+
+把子节点对象展开，关键是我们固定将 `map` 函数定义为 `child => child`。
