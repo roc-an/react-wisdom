@@ -585,3 +585,142 @@ export function getIteratorFn(maybeIterable: ?any): ?() => ?Iterator<*> {
 只要判断结果是数组或是可迭代对象，那就应递归调用 `mapIntoArray()` 去继续遍历，直到是一个单节点为止。
 
 理解了这两次判断，那最核心的流程也就搞明白了。
+
+## （五）如何设置节点的 `key`
+
+我们前面还甩了一个问题没有深究，那就是在整个 `map` 过程中，React 是如何设置节点的 `key` 的。
+
+`key` 作为优化渲染的关键属性，一定不能重复。随着子节点树的每一层递归，设置 `key` 时都会用一些连缀符号（比如 `"."`、`":"` 和 `"/"`）去拼接。
+
+示例中，`<PlayChildren>` 有两个子节点 `<span>A</span>` 和 `<span>B</span>`：
+
+```html
+<PlayChildren>
+  <span>A</span>
+  <span>B</span>
+</PlayChildren>
+```
+
+处理 `props.children` 时对每个子节点又 `return` 了数组：
+
+```js
+const playedChildren = React.Children.map(props.children, (c) => [c, [c, c]]);
+```
+
+最终渲染的结构是：
+
+```html
+<div id="root">
+  <span>A</span>
+  <span>A</span>
+  <span>A</span>
+  <span>B</span>
+  <span>B</span>
+  <span>B</span>
+</div>
+```
+
+我把这 6 个子节点的 `key` 打印出来：
+
+0. `{ key: ".0/.0" }`
+1. `{ key: ".0/.1:0" }`
+2. `{ key: ".0/.1:1" }`
+3. `{ key: ".1/.0" }`
+4. `{ key: ".1/.1:0" }`
+5. `{ key: ".1/.1:1" }`
+
+我们分析下 `key` 相关源码。首先，React 定义了两个分隔符：
+
+```js
+// 在 /react/src/ReactChildren.js 文件中
+const SEPARATOR = '.'; // 用于命名节点 key 的分隔符
+const SUBSEPARATOR = ':'; // 用于命名节点 key 的子分隔符
+```
+
+### 第一层 `key`
+
+示例中，`<PlayChildren>` 有两个 `<span>` 作为直接子节点，所以 `props.children` 是个有 2 个元素的数组，就会进入到判 `children` 是数组的流程中：
+
+```js
+const nextNamePrefix =
+  nameSoFar === '' ? SEPARATOR : nameSoFar + SUBSEPARATOR;
+
+if (isArray(children)) {
+  for (let i = 0; i < children.length; i++) {
+    child = children[i];
+    nextName = nextNamePrefix + getElementKey(child, i);
+    subtreeCount += mapIntoArray(
+      child,
+      array,
+      escapedPrefix,
+      nextName,
+      callback,
+    );
+  }
+} {
+  // ...
+}
+```
+
+一开始，在 `mapChildren()` 中调用 `mapIntoArray()` 是这么调的：
+
+```js
+mapIntoArray(children, result, '', '', function(child) {
+  return func.call(context, child, count++);
+});
+```
+
+这里第 3、4 个参数分别是 `escapedPrefix`、`nameSoFar`，它们初始都是空字符串 `''`。
+
+所以源码中 `nextNamePrefix` 初始是 `SEPARATOR`，也就是 `"."`。
+
+之后拼接了 `getElementKey(child, i)`
+
+### `getElementKey()` 生成元素的 `key`
+
+继续上菜，`getElementKey()` 源码：
+
+```js
+/**
+ * Generate a key string that identifies a element within a set.
+ * 生成用于标识一组中的元素的 key 字符串。
+ *
+ * @param {*} element A element that could contain a manual key. // 一个可能包含了手动设置 key 的元素
+ * @param {number} index Index that is used if a manual key is not provided. // 如果没有提供手动设置的 key，那就用索引生成
+ * @return {string}
+ */
+function getElementKey(element: any, index: number): string {
+  // Do some typechecking here since we call this blindly. We want to ensure
+  // that we don't block potential future ES APIs.
+  // 这里要做一些类型检查，因为我们是在逐渐摸索地去调用它，确保不会阻碍未来潜在的 ES API。
+  // 如果元素手动设置了 key，那么直接返回编码后的 key
+  if (typeof element === 'object' && element !== null && element.key != null) {
+    return escape('' + element.key);
+  }
+  // Implicit key determined by the index in the set
+  // 如果未手动设置 key，那么这种隐式的 key 由它在一组中所处的索引决定
+  // 用 36 进制字符串来表示索引，大于 9 的数字用字母 a~z 表示
+  return index.toString(36);
+}
+```
+
+我们没有手动去设置 `key`，所以 React 就会用节点索引来生成 `key`。这里有个小技巧，源码使用了 `index.toString(36)`。
+
+`toString(36)` 会用 36 进制字符串来表示 10 进制下的索引。为什么要这么做呢？主要的优化点是**缩短表示 `key` 的字符数**。因为：
+
+* 10 进制下只能用数字 0~9 表示 10 个数。用 1 位字符表示了 9 个数；
+* 36 进制下，大于 9 的数字可以用 26 个英文字母 a~z 表示。用 1 位字符表示了 35 个数。
+
+所以，**使用多进制数，可以在花费相同的字符串位数下，表示更多的数字。这是多进制数在编程中的一个常见场景**。类似地，多进制数还可以用于将一个长链接转换成短链接，从而节省数据存储空间，等等。原理都是一致的。
+
+示例第一层传入的节点索引分别是 0 和 1，0 和 1 都小于 9，那么 `toString(36)` 后得到 `"0"` 和 `"1"`。
+
+我们把示例第一层的 `key` 分析完，
+
+```js
+nextName = nextNamePrefix + getElementKey(child, i);
+```
+
+其中，`nextNamePrefix` 分析过了，是 `"."`，调用 `getElementKey(child, i)` 后分别是 `"0"` 和 `"1"`。
+
+所以，最终第一层的 `key` 是 `".0"` 和 `".1"`，与打印结果的一致。
