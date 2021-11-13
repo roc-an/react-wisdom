@@ -443,3 +443,33 @@ return subtreeCount;
 `Iterator` 的使用不是本文重点，如果你对它概念上有些模糊，我推荐看朊老师的 [`Iterator` 和 `for...of` 循环 |《ECMAScript 6 入门》](https://es6.ruanyifeng.com/#docs/iterator)，里面有详尽的用例。不过即便对 `Iterator` 不熟，也不影响我们阅读这块源码，只需要知道对象也可能是可迭代遍历的就好。
 
 接下来就深入到这两种情况中一探究竟，都比较简单。
+
+#### `children` 是数组的情况
+
+上菜（代码）：
+
+```js
+if (isArray(children)) {
+  // 如果 children 是数组，遍历这个数组，并用子节点递归地调用 mapIntoArray()
+  for (let i = 0; i < children.length; i++) {
+    child = children[i];
+    nextName = nextNamePrefix + getElementKey(child, i);
+    subtreeCount += mapIntoArray(
+      child,
+      array,
+      escapedPrefix,
+      nextName,
+      callback,
+    );
+  }
+} else {
+  const iteratorFn = getIteratorFn(children);
+  // ...
+}
+```
+
+逻辑很简单，如果 `children` 是数组，那么递归地调用 `mapIntoArray()` 直到 `children` 是单节点。这里用 `subtreeCount` 累加了 `mapIntoArray()` 的返回值，从而实现了对整个子节点树进行遍历计数。
+
+另外，React 中 `isArray` 函数使用的是 `Array.isArray()` 进行数组判断的。
+
+#### `children` 可能是可迭代对象的情况
