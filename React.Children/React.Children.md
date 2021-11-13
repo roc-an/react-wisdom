@@ -472,4 +472,105 @@ if (isArray(children)) {
 
 另外，React 中 `isArray` 函数使用的是 `Array.isArray()` 进行数组判断的。
 
+还有值得注意的是，这里是判断 `children` 是否是数组，而不是之前处理单节点时，判断 `map` 后得到的是否是一个数组。前者是判断要去遍历的 `children`，后者是判断已 `map` 得到的 `mappedChild`，这里容易搞混。
+
 #### `children` 可能是可迭代对象的情况
+
+上菜：
+
+```js
+if (isArray(children)) {
+  // ... 刚分析过了
+} else {
+  const iteratorFn = getIteratorFn(children);
+  if (typeof iteratorFn === 'function') {
+    // 如果 children 是有 Iterator 函数的可迭代对象
+    const iterableChildren: Iterable<React$Node> & {
+      entries: any,
+    } = (children: any);
+
+    const iterator = iteratorFn.call(iterableChildren);
+    let step;
+    let ii = 0;
+    // 迭代 children，用子节点递归地调用 mapIntoArray()，直到迭代完毕（也就是 step.done 为 true）
+    while (!(step = iterator.next()).done) {
+      child = step.value; // 迭代的每个子节点
+      nextName = nextNamePrefix + getElementKey(child, ii++);
+      subtreeCount += mapIntoArray(
+        child,
+        array,
+        escapedPrefix,
+        nextName,
+        callback,
+      );
+    }
+  } else if (type === 'object') {
+    // 如果 children 不是单个节点，也不是数组或可迭代对象，那么获取它的类型信息并抛错
+
+    // eslint-disable-next-line react-internal/safe-string-coercion
+    // 用 String() 得到 children 的类型信息字符串
+    const childrenString = String((children: any));
+
+    throw new Error(
+      `Objects are not valid as a React child (found: ${
+        childrenString === '[object Object]'
+          ? 'object with keys {' +
+            Object.keys((children: any)).join(', ') +
+            '}'
+          : childrenString
+      }). ` +
+        'If you meant to render a collection of children, use an array ' +
+        'instead.',
+    );
+  }
+}
+```
+
+代码中，先通过 `getIteratorFn()` 函数来尝试获取 `children` 的 `Iterator` 函数。`getIteratorFn()` 的源码：
+
+```js
+// 在 /shared/ReactSymbols.js 文件中
+const MAYBE_ITERATOR_SYMBOL = typeof Symbol === 'function' && Symbol.iterator;
+const FAUX_ITERATOR_SYMBOL = '@@iterator';
+
+// 获取传参的 Iterator 函数，如果传参不是可迭代对象，或者没有 Iterator 函数，那么 return null
+export function getIteratorFn(maybeIterable: ?any): ?() => ?Iterator<*> {
+  if (maybeIterable === null || typeof maybeIterable !== 'object') {
+    return null;
+  }
+  const maybeIterator =
+    (MAYBE_ITERATOR_SYMBOL && maybeIterable[MAYBE_ITERATOR_SYMBOL]) ||
+    maybeIterable[FAUX_ITERATOR_SYMBOL];
+  if (typeof maybeIterator === 'function') {
+    return maybeIterator;
+  }
+  return null;
+}
+```
+
+之后通过判断取得的 `iteratorFn` 是否是一个 `function` 来判断 `children` 是否是可迭代对象。这是判断可迭代对象的常用手段。
+
+如果是可迭代对象的话，就用 `while` 循环来迭代它。
+
+通过 `const iterator = iteratorFn.call(iterableChildren);` 得到的 `iterator` 有一个 `next()` 方法，调用 `next()` 就会进行下一次遍历。
+
+每次迭代结果赋值给变量 `step`，它是个对象，结构：
+
+```js
+{
+  done: 布尔值，表示迭代是否结束
+  value: 迭代取得的值
+}
+```
+
+它有两个属性，`done` 表示是否迭代完成，`value` 就是迭代取到的值。
+
+这些是 ES6 Iterator 的相关语法，`done` 的布尔值很关键，它是终止迭代的判断条件。有了 `Iterator`，我们可以控制数据迭代的流程，并且在每次迭代的小步中做更多细分的事情，这比数组的 `forEach()` 和 `map()` 更底层，可以允许我们自定义整个遍历过程，从而突破了 ES 提供的内置遍历函数的局限性。
+
+在迭代过程中，依然是递归调用了 `subtreeCount += mapIntoArray()`。也就是说，**无论 `children` 是个数组还是可迭代对象，处理逻辑最核心的就是递归调用 `mapIntoArray()` 并计数**。
+
+分支 `else if (type === 'object') { throw new Error(); }`，如果没有 `iteratorFn`，也就是 `children` 不可迭代，那么就抛错提示，这种情况一般是调用 API 的时候出 Bug 了。
+
+最后，`return subtreeCount;` 将递归遍历的组件计数返回。至此，这个 200+ 行的最核心的 `mapIntoArray()` 函数就实现完整了 :)
+
+## （四）`React.Children.map()` 源码思路总结
