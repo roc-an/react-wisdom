@@ -176,3 +176,60 @@ function mapIntoArray(
 需要重点注意的是**返回值是个数字**，它是本次调用 `mapIntoArray()` 过程中已遍历的子节点的计数，每次调用时将其累加，最终就能得到遍历的整个子节点树的节点数了。
 
 让我们带着这些猜想进入到 `mapIntoArray()` 函数体中，我把 `if (__DEV__) {...}` 部分去掉了，我们一段一段地分析函数体。
+
+### 判断 `children` 是否是单个子节点
+
+`React.Children.map(children, function[(thisArg)])` 传入的待遍历 `children` 有可能是单个节点。源码一开始就对这种情况进行了判断：
+
+```js
+const type = typeof children;
+
+if (type === 'undefined' || type === 'boolean') {
+  // All of the above are perceived as null.
+  // children 如果是 undefined 或 boolean，都被视为 null 去处理
+  children = null;
+}
+
+let invokeCallback = false; // 是否直接用单个子节点调用 callback
+
+// 如果 children 是 null | string | number 
+// 或者是 $$typeof 属性是 REACT_ELEMENT_TYPE 或 REACT_PORTAL_TYPE 的对象
+// 它们都是 React 可渲染的节点，那就将 invokeCallback 设为 true
+if (children === null) {
+  invokeCallback = true;
+} else {
+  switch (type) {
+    case 'string':
+    case 'number':
+      invokeCallback = true;
+      break;
+    case 'object':
+      switch ((children: any).$$typeof) {
+        case REACT_ELEMENT_TYPE:
+        case REACT_PORTAL_TYPE:
+          invokeCallback = true;
+      }
+  }
+}
+```
+
+代码中，初始化了 `invokeCallback` 变量为 `false`，判断后如果它变为 `true`，就说明可以直接调用传入的 `callback` 函数。
+
+从 `if`、`switch` 逻辑可以分析出，以下单个节点类型可以直接调 `callback`：
+
+* `null`；
+* `string`；
+* `number`；
+* `$$typeof` 属性是 `REACT_ELEMENT_TYPE` 或 `REACT_PORTAL_TYPE` 的对象。
+
+它们都是 React 中可以有效渲染的节点类型。
+
+另外 `REACT_ELEMENT_TYPE` 和 `REACT_PORTAL_TYPE` 这两个类型常量其实就是两个 `Symbol`：
+
+```js
+// 在 /shared/ReactSymbol.js 中
+// ...
+REACT_ELEMENT_TYPE = symbolFor('react.element');
+REACT_PORTAL_TYPE = symbolFor('react.portal');
+// ...
+```
