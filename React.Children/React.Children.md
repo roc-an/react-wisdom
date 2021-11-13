@@ -574,3 +574,14 @@ export function getIteratorFn(maybeIterable: ?any): ?() => ?Iterator<*> {
 最后，`return subtreeCount;` 将递归遍历的组件计数返回。至此，这个 200+ 行的最核心的 `mapIntoArray()` 函数就实现完整了 :)
 
 ## （四）`React.Children.map()` 源码思路总结
+
+我画了张图来描述 `React.Children.map()` 的执行流程。如图：
+
+其中进行了两次关键的判断：
+
+1. 判断要遍历的 `children` 是单个节点、数组还是可迭代对象；
+2. 判断 `map` 得到的 `mappedChild` 是数组、`ReactElement` 还是其他值。
+
+只要判断结果是数组或是可迭代对象，那就应递归调用 `mapIntoArray()` 去继续遍历，直到是一个单节点为止。
+
+理解了这两次判断，那最核心的流程也就搞明白了。
