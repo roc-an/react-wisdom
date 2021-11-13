@@ -1,6 +1,6 @@
 # React.Children API 源码剖析
 
-> 发布于 2021.11.12，最后更新于 2021.11.12。
+> 发布于 2021.11.13，最后更新于 2021.11.13。
 >
 > 源码版本：V17.0.3
 
@@ -139,7 +139,7 @@ function mapChildren(
 
 它里面最核心的，猜也能猜到，就是调用了 `mapIntoArray()` 函数，`mapChildren()` 将应用层传入的 `children`、`func` 以及自己构建的 `result` 和 `count` 都透传进了 `mapIntoArray()`。
 
-## `mapIntoArray()` 剖析
+## （三）`mapIntoArray()` 剖析
 
 将源码定位到 `mapIntoArray()`，刚看到时我有点蒙，因为这家伙折叠起来一看，有 200+ 行。
 
@@ -233,3 +233,112 @@ REACT_ELEMENT_TYPE = symbolFor('react.element');
 REACT_PORTAL_TYPE = symbolFor('react.portal');
 // ...
 ```
+
+### 对单个子节点直接调用 `callback`
+
+上一段对 `children` 类型进行判断后，如果是单节点，`invokeCallback` 就为 `true`，否则为 `false`。接着便是 `invokeCallback` 为 `true` 时的逻辑了：
+
+```js
+// 如果 invokeCallback 为 true，那就直接调用 callback
+if (invokeCallback) {
+  const child = children;
+  let mappedChild = callback(child);
+  // If it's the only child, treat the name as if it was wrapped in an array
+  // so that it's consistent if the number of children grows:
+  // 即便只有一个子节点，也会被当做包裹进一个数组中去命名。因为如果后续子节点的数量增加了，也能前后保持一致
+  // 初始化子节点 key 的命名
+  const childKey =
+    nameSoFar === '' ? SEPARATOR + getElementKey(child, 0) : nameSoFar;
+  if (isArray(mappedChild)) {
+    // 如果调用 map 函数得到的子节点是数组，就编码好 key 前缀，然后递归进行 mapIntoArray()
+    // 这一步确保了遍历的结果数组是一维的
+    let escapedChildKey = '';
+    if (childKey != null) {
+      escapedChildKey = escapeUserProvidedKey(childKey) + '/';
+    }
+    mapIntoArray(mappedChild, array, escapedChildKey, '', c => c);
+  } else if (mappedChild != null) {
+    // 如果调用 map 函数得到的子节点不是数组，验证该节点是否是 ReactElement：
+    //   A.对于 ReactElement，clone 它并附上新的 key，然后 push 进结果数组
+    //   B.对于非 ReactElement，直接 push 进结果数组
+    if (isValidElement(mappedChild)) {
+      mappedChild = cloneAndReplaceKey(
+        mappedChild,
+        // Keep both the (mapped) and old keys if they differ, just as
+        // traverseAllChildren used to do for objects as children
+        // 如果 map 前后节点的 key 不同，那么都将保留
+        // 用之前递归过程中的 key 前缀拼接本次 map 的节点的 key
+        escapedPrefix +
+          // $FlowFixMe Flow incorrectly thinks React.Portal doesn't have a key
+          // $FlowFixMe Flow 错误的认为 React.Portal 没有 key
+          // 这里三目判断条件是：是否是 “map 后的 child 有 key，且与 map 前不同”
+          (mappedChild.key && (!child || child.key !== mappedChild.key)
+            ? // $FlowFixMe Flow incorrectly thinks existing element's key can be a number
+              // $FlowFixMe Flow 错误地认为元素的 key 可以是数字
+              // eslint-disable-next-line react-internal/safe-string-coercion
+              escapeUserProvidedKey('' + mappedChild.key) + '/'
+            : '') +
+          childKey,
+      );
+    }
+    array.push(mappedChild);
+  }
+  return 1;
+}
+```
+
+代码中，判断如果 `invokeCallback` 为 `true`，那么通过 `let mappedChild = callback(child);` 对单个子节点直接调用了 `callback`，得到 `map` 后的返回值 `mappedChild`。
+
+得到的 `mappedChild` 主要有两种情况：
+
+* 是个数组；
+* 不是 `null` 也不是数组：
+  * 是单个有效的 ReactElement 对象；
+  * 是单个其它值。
+
+为什么调用 `callback` 后可能得到数组呢？还记得我们一开始的编码示例么：
+
+```js
+const playedChildren = React.Children.map(props.children, (c) => [c, [c, c]]);
+```
+
+这里的 `map` 函数是 `(c) => [c, [c, c]]`，我们 `return` 了一个嵌套数组，这个函数会在 `callback` 中调用。所以 `mappedChild` 是数组对应的就是这种情况。
+
+我们先忽略处理 `key` 的逻辑，只关注主体逻辑。
+
+如果 `mappedChild` 是数组，那么：
+
+```js
+mapIntoArray(mappedChild, array, escapedChildKey, '', c => c);
+```
+
+**`mappedChild` 是数组的情况下，会递归地调用 `mapIntoArray()` 自身**，透传了 `array` 这个整个 `map` 遍历的结果数组，另外将再次调用 `mapIntoArray()` 的 `callback` 固定成了 `c => c`，也就是返回自己。这是因为如果再去返回一个什么数组，那就会无限递归下去了...
+
+#### `isValidElement()` 验证是否是 `ReactElement` 对象
+
+接着，如果 `mappedChild` 不是 `null` 也不是数组，那么会通过 `isValidElement()` 来验证它是否是 `ReactElement` 对象。
+
+我们来看看 `isValidElement()` 函数，看看 React 是如何判断节点类型的，其实很简单：
+
+```js
+// 在 /react/src/ReactElement.js 中
+
+/**
+ * Verifies the object is a ReactElement.
+ * 判断传入的对象是否是 ReactElement
+ * See https://reactjs.org/docs/react-api.html#isvalidelement
+ * @param {?object} object
+ * @return {boolean} True if `object` is a ReactElement.
+ * @final
+ */
+export function isValidElement(object) {
+  // 主要通过对象的 $$typeof 属性是否是 REACT_ELEMENT_TYPE 来判断
+  return (
+    typeof object === 'object' &&
+    object !== null &&
+    object.$$typeof === REACT_ELEMENT_TYPE
+  );
+}
+```
+
+可以发现，**React 主要是通过对象上的 `$$typeof` 属性来判断节点类型的**。如果 `$$typeof` 属性是 `REACT_ELEMENT_TYPE` 这个 `Symbol`，那么该对象就是一个 `ReactElement`。
