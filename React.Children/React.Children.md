@@ -19,6 +19,7 @@ React 中，可以通过 `props.children` 来获取当前组件的子节点。�
 * 如何用**双层递归**来展开节点子树；
 * 节点的 `key` 是如何设置的；
 * 如何用 36 进制数优化 `key` 的字符数（这是**多进制数**在编程中的一个常见场景）；
+* `Iterator` 可迭代对象的使用。
 
 在 [这次 Commit]() 中，我对 `React.Children` API 的源码做了详细的逐行注释，供大家参考 :)
 
@@ -399,3 +400,46 @@ export function cloneAndReplaceKey(oldElement, newKey) {
 最后别忘了，该条件分支结尾 `return 1`。为什么要 `return 1`？因为前面我们说 `mapIntoArray()` 是要返回已遍历的节点数的，这里 `invokeCallback` 为 `true` 仅遍历了一个节点，所以 `return 1`。
 
 至此，`map` 单节点的逻辑就完整了 :)
+
+### 对多节点进行 `map`
+
+接下来就是处理 `children` 是多节点的情况了。其实理解了上面处理单节点，处理多节点就简单很多了。因为**即便有再多的节点，最终还是要变成处理单节点，从而整个大递归就完成了闭环**。
+
+多节点的代码我们分段来看，因为源码中把 `children` 多节点分成了两种情况：
+
+```js
+// 如果 invokeCallback 为 false，也就是 children 不是单个节点，那么对其进行遍历
+let child; // 用于存当前遍历的子节点
+let nextName;
+// Count of children found in the current subtree.
+// 当前子节点树的节点数
+let subtreeCount = 0;
+const nextNamePrefix =
+  nameSoFar === '' ? SEPARATOR : nameSoFar + SUBSEPARATOR;
+
+if (isArray(children)) {
+  // ...
+} else {
+  const iteratorFn = getIteratorFn(children);
+  if (typeof iteratorFn === 'function') {
+    // ...
+  } else if (type === 'object') {
+    // ...
+  }
+}
+
+return subtreeCount;
+```
+
+观察条件分支，`children` 多节点有两种主要情况：
+
+* 是个数组；
+* 可能是一个可迭代对象：
+  * 部署了 `Iterator` 接口，也就是对象上有 `iteratorFn` 函数；
+  * `type === 'object'` 但又没有 `Iterator` 接口，也就是无法迭代，这种情况就报错。
+
+**有了 ES6 Iterator 后，咱们意识里不能一提可遍历，那数据一定是个数组，也有可能是个部署了 `Iterator` 接口的对象，这点很重要**。
+
+`Iterator` 的使用不是本文重点，如果你对它概念上有些模糊，我推荐看朊老师的 [`Iterator` 和 `for...of` 循环 |《ECMAScript 6 入门》](https://es6.ruanyifeng.com/#docs/iterator)，里面有详尽的用例。不过即便对 `Iterator` 不熟，也不影响我们阅读这块源码，只需要知道对象也可能是可迭代遍历的就好。
+
+接下来就深入到这两种情况中一探究竟，都比较简单。
