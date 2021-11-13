@@ -724,3 +724,127 @@ nextName = nextNamePrefix + getElementKey(child, i);
 其中，`nextNamePrefix` 分析过了，是 `"."`，调用 `getElementKey(child, i)` 后分别是 `"0"` 和 `"1"`。
 
 所以，最终第一层的 `key` 是 `".0"` 和 `".1"`，与打印结果的一致。
+
+### 第二层 `key`
+
+第一层的 `key` 设置好后，它作为下一层调用 `mapIntoArray()` 的 `nameSoFar` 参数。
+
+在第二层中，`<span>` 作为单个 `ReactElement` 作为 `children` 传递给了 `mapIntoArray()`。这会命中单节点直接调用 `callback` 的条件分支：
+
+```js
+if (invokeCallback) {
+  const child = children;
+  let mappedChild = callback(child);
+  // If it's the only child, treat the name as if it was wrapped in an array
+  // so that it's consistent if the number of children grows:
+  // 即便只有一个子节点，也会被当做包裹进一个数组中去命名。因为如果后续子节点的数量增加了，也能前后保持一致
+  // 初始化子节点 key 的命名
+  const childKey =
+    nameSoFar === '' ? SEPARATOR + getElementKey(child, 0) : nameSoFar;
+  if (isArray(mappedChild)) {
+    // 如果调用 map 函数得到的子节点是数组，就编码好 key 前缀，然后递归进行 mapIntoArray()
+    // 这一步确保了遍历的结果数组是一维的
+    let escapedChildKey = '';
+    if (childKey != null) {
+      escapedChildKey = escapeUserProvidedKey(childKey) + '/';
+    }
+    mapIntoArray(mappedChild, array, escapedChildKey, '', c => c);
+  } else if (mappedChild != null) {
+    // ...
+  }
+}
+```
+
+这次 `nameSoFar` 已经有值了（分别是 `".0"` 和 `".1"`），因此这层得到的 `childKey` 是 `".0"` 和 `".1"`。
+
+由于示例的 `map` 函数是 `(c) => [c, [c, c]]`，因此 `mappedChild` 是个数组。继而：
+
+```js
+escapedChildKey = escapeUserProvidedKey(childKey) + '/';
+```
+
+`escapeUserProvidedKey()` 函数的源码也很简单：
+
+```js
+const userProvidedKeyEscapeRegex = /\/+/g; // 全局匹配 1 个或多个 /
+function escapeUserProvidedKey(text: string): string {
+  // 将匹配到的 1 个或多个 / 替换成 $&/
+  return text.replace(userProvidedKeyEscapeRegex, '$&/');
+}
+```
+
+目前传入的 `childKey` 中没有 `/`，所以不会匹配到正则，还是原封不动地返回。那么最终 `escapedChildKey` 的值分别是：
+
+* `".0/"`
+* `".1/"`
+
+接着 `escapedChildKey` 作为 `mapIntoArray()` 的第 3 个参数 `escapedPrefix` 传入，且参数 `nameSoFar` 传入了 `''`。
+
+### 在后续的递归中处理 `key`
+
+接着，把 `[c, [c, c]]` 作为 `children` 传入 `mapIntoArray()`，这又成了 `children` 是数组的情况。
+
+再继续递归，就成了 `children` 是 `c` 和 `[c, c]` 的情况，这块有点绕，不过如果耐心去理的话是可以理出来的。
+
+对于 `children` 是 `c` 的情况，也就是此时是个单 `ReactElement` 节点了，那么会触发 `if (isValidElement(mappedChild)) {}` 的条件分支：
+
+```js
+if (isValidElement(mappedChild)) {
+  mappedChild = cloneAndReplaceKey(
+    mappedChild,
+    // Keep both the (mapped) and old keys if they differ, just as
+    // traverseAllChildren used to do for objects as children
+    // 如果 map 前后节点的 key 不同，那么都将保留
+    // 用之前递归过程中的 key 前缀拼接本次 map 的节点的 key
+    escapedPrefix +
+      // $FlowFixMe Flow incorrectly thinks React.Portal doesn't have a key
+      // $FlowFixMe Flow 错误的认为 React.Portal 没有 key
+      // 这里三目判断条件是：是否是 “map 后的 child 有 key，且与 map 前不同”
+      (mappedChild.key && (!child || child.key !== mappedChild.key)
+        ? // $FlowFixMe Flow incorrectly thinks existing element's key can be a number
+          // $FlowFixMe Flow 错误地认为元素的 key 可以是数字
+          // eslint-disable-next-line react-internal/safe-string-coercion
+          escapeUserProvidedKey('' + mappedChild.key) + '/'
+        : '') +
+      childKey,
+  );
+}
+```
+
+> PS：注释中的 `$FlowFixMe` 应该是 FaceBook（后面就叫 Meta 了）React 程序员在向 `Flow` 程序员求助，看来 `Flow` 坑确实多啊。不用 TS 那是因为 TS 是微软的，而 Flow 是 Meta 自家的 :)
+
+要注意，我们一直是通过向 `mapIntoArray()` 函数传入 `escapedPrefix` 和 `nameSoFar` 来拼接 `key` 的，所以此时 `mappedChild` 上没有 `key` 属性。
+
+这里的 `(mappedChild.key && (!child || child.key !== mappedChild.key)` 是为了处理 `map` 前节点本身已经有 `key` 的情况。
+
+至此，我们 `clone` 时为节点附上的新 `key` 分是：
+
+* `".0/.0"`
+* `".1/.0"`
+
+而：
+
+* `".0/.1"`
+* `".1/.1"`
+
+这两种情况，递归还没结束，别忘了我们还有一层 `children` 是 `[c, c]` 的情况...
+
+感觉头发不知不觉又掉了一搓。
+
+接着脑补，其实 `[c, c]` 在递归中又会命中 `children` 是数组的情况，然后继续递归，又会命中 `children` 是单节点的情况，那就拼呗：
+
+
+* `".0/.1"` 被继续拼成了分别是：
+  * `".0/.1.0"`
+  * `".0/.1.1"`
+* `".1/.1"` 被继续拼成了分别是：
+  * `".1/.1.0"`
+  * `".1/.1.1"`
+
+我本以为大功告成了，但是发现上面浏览器打印的 `key` 中有冒号 `:`。当时我的内心是崩溃的。
+
+不过也没关系，我们的层级是正确的，而且，目前仅处于渲染的 `react` 模块这个阶段，还没有到后面实际渲染的 `react-dom` 阶段，从 `ReactChildren.js` 提供的其他编码 `key` 的函数来看，很可能后续阶段还会继续处理 `key`。
+
+至此，所有递归情况下设置 `key` 的逻辑就分析完了。
+
+可能有点蒙，不过很正常，关键是吸收它的**思想：提前设置好分隔符，然后在每层递归中，传递了之前分析好的 `key`，这样就能在后续递归中进行拼接。另外 React 还注意了手动为节点设置 `key` 的情况，并且使用了 36 进制数进行短字符优化，这些才是我们分析了一通的精髓**。
